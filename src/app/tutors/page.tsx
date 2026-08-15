@@ -16,6 +16,8 @@ const DEFAULT_FILTERS: TutorFilterState = {
   grade: 'All Classes',
   board: 'All Boards',
   language: 'All Languages',
+  availability: 'All Times',
+  onlineOnly: false,
   mode: 'all',
   maxPrice: 1200,
   minRating: 0,
@@ -32,7 +34,10 @@ function TutorsContent() {
       subject: searchParams.get('subject') || 'All Subjects',
       grade: searchParams.get('grade') || 'All Classes',
       language: searchParams.get('lang') || 'All Languages',
+      availability: searchParams.get('availability') || 'All Times',
+      onlineOnly: searchParams.get('online') === 'true',
       maxPrice: searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : 1200,
+      minRating: searchParams.get('minRating') ? Number(searchParams.get('minRating')) : 0,
       availableNowOnly: searchParams.get('available') === 'true',
     };
   });

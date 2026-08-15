@@ -8,7 +8,7 @@ import { Rating } from './Rating';
 import { VerificationBadge } from './VerificationBadge';
 import { MatchScore } from './MatchScore';
 import { Button } from './Button';
-import { MapPin, Clock, Globe, Zap, ArrowRight, BookOpen } from 'lucide-react';
+import { MapPin, Clock, Globe, Zap, ArrowRight } from 'lucide-react';
 
 interface TutorCardProps {
   tutor: Tutor;
@@ -120,6 +120,18 @@ export const TutorCard: React.FC<TutorCardProps> = ({
           <div className="flex items-center gap-1.5 truncate">
             <Globe className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span className="truncate">{tutor.languages.join(', ')}</span>
+          </div>
+          <div className="col-span-2 text-[11px] text-slate-600">
+            <span className="font-semibold text-slate-700">Classes:</span> {tutor.grades.join(', ')}
+          </div>
+          <div className="col-span-2 text-[11px] text-slate-600 flex items-center justify-between gap-2">
+            <span>
+              <span className="font-semibold text-slate-700">Availability:</span> {tutor.availableDays.join(', ') || 'Flexible'}
+            </span>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border font-semibold ${tutor.mode === 'online' || tutor.mode === 'both' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${tutor.mode === 'online' || tutor.mode === 'both' ? 'bg-emerald-600' : 'bg-slate-400'}`} />
+              {tutor.mode === 'online' || tutor.mode === 'both' ? 'Online' : 'Offline'}
+            </span>
           </div>
         </div>
       </div>

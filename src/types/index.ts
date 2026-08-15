@@ -113,6 +113,8 @@ export interface TutorFilterState {
   grade: string;
   board: string;
   language: string;
+  availability: string;
+  onlineOnly: boolean;
   mode: 'all' | 'online' | 'local';
   maxPrice: number;
   minRating: number;

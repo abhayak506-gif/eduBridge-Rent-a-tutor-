@@ -122,6 +122,18 @@ export const Navbar: React.FC = () => {
                 <GraduationCap className="w-4 h-4 text-academic-600" />
                 Tutor Portal
               </Link>
+
+              <Link
+                href="/admin"
+                className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5 ${
+                  isActive('/admin')
+                    ? 'bg-brand-50 text-brand-700'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                Admin
+              </Link>
             </nav>
 
             {/* Right Action buttons */}

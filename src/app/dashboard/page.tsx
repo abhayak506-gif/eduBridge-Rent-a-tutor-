@@ -49,11 +49,15 @@ export default function StudentDashboardPage() {
   // Data states
   const [recommendedMatches, setRecommendedMatches] = useState<TutorRecommendation[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isRecommendationsLoading, setIsRecommendationsLoading] = useState(true);
+  const [isBookingsLoading, setIsBookingsLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadData() {
-      setIsLoading(true);
+      setIsRecommendationsLoading(true);
+      setIsBookingsLoading(true);
+      setDataError(null);
       try {
         const [recommendations, allBookings] = await Promise.all([
           TutorService.getRecommendedTutors({
@@ -66,8 +70,14 @@ export default function StudentDashboardPage() {
         ]);
         setRecommendedMatches(recommendations);
         setBookings(allBookings);
+      } catch (error) {
+        console.error('Failed to load student dashboard data', error);
+        setDataError(error instanceof Error ? error.message : 'Unable to load dashboard data right now.');
+        setRecommendedMatches([]);
+        setBookings([]);
       } finally {
-        setIsLoading(false);
+        setIsRecommendationsLoading(false);
+        setIsBookingsLoading(false);
       }
     }
     loadData();
@@ -142,6 +152,12 @@ export default function StudentDashboardPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 space-y-8">
+        {dataError && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+            {dataError}
+          </div>
+        )}
+
         {/* Metric Cards Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <DashboardCard
@@ -282,7 +298,7 @@ export default function StudentDashboardPage() {
             <div>
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-bold border border-amber-300">
                 <Sparkles className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
-                AI Recommendation Engine (Connected via /api/recommend-tutors)
+                AI Recommendation Engine (Connected via /api/tutors/recommendations)
               </div>
               <h2 className="text-2xl font-black text-slate-900 tracking-tight font-display mt-1">
                 Best Matches for You
@@ -301,7 +317,7 @@ export default function StudentDashboardPage() {
             </Link>
           </div>
 
-          {isLoading ? (
+          {isRecommendationsLoading ? (
             <LoadingSpinner text="Computing AI compatibility matrix for Class 11 PCM..." />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -342,6 +358,8 @@ export default function StudentDashboardPage() {
                   />
                 ))}
               </div>
+            ) : isBookingsLoading ? (
+              <LoadingSpinner text="Loading your upcoming bookings..." />
             ) : (
               <EmptyState
                 icon="calendar"
@@ -372,6 +390,8 @@ export default function StudentDashboardPage() {
                   />
                 ))}
               </div>
+            ) : isBookingsLoading ? (
+              <LoadingSpinner text="Loading completed sessions..." />
             ) : (
               <EmptyState
                 icon="booking"

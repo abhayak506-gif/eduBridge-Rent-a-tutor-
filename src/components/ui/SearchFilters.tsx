@@ -11,6 +11,9 @@ import {
 import { Search, Filter, RotateCcw, Zap, SlidersHorizontal } from 'lucide-react';
 import { Button } from './Button';
 
+const AVAILABILITY_OPTIONS = ['All Times', 'Morning', 'Afternoon', 'Evening', 'Night'];
+const RATING_OPTIONS = [0, 4, 4.5];
+
 interface SearchFiltersProps {
   filters: TutorFilterState;
   onChange: (filters: TutorFilterState) => void;
@@ -68,7 +71,7 @@ export const SearchFilters: React.FC<SearchFiltersProps> = ({
       </div>
 
       {/* Grid of Dropdowns */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-6 gap-3 pt-1">
         {/* Subject */}
         <div>
           <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
@@ -140,6 +143,42 @@ export const SearchFilters: React.FC<SearchFiltersProps> = ({
             ))}
           </select>
         </div>
+
+        {/* Availability */}
+        <div>
+          <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+            Availability
+          </label>
+          <select
+            value={filters.availability}
+            onChange={(e) => update('availability', e.target.value)}
+            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-brand-500 focus:bg-white"
+          >
+            {AVAILABILITY_OPTIONS.map((slot) => (
+              <option key={slot} value={slot}>
+                {slot}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Minimum rating */}
+        <div>
+          <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+            Min Rating
+          </label>
+          <select
+            value={String(filters.minRating)}
+            onChange={(e) => update('minRating', Number(e.target.value))}
+            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-brand-500 focus:bg-white"
+          >
+            {RATING_OPTIONS.map((ratingValue) => (
+              <option key={ratingValue} value={ratingValue}>
+                {ratingValue === 0 ? 'Any Rating' : `${ratingValue}+ Stars`}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Advanced Row: Budget Slider, Mode Toggle, Instant available, Reset */}
@@ -160,7 +199,7 @@ export const SearchFilters: React.FC<SearchFiltersProps> = ({
           />
         </div>
 
-        {/* Mode Toggle & Instant Toggle */}
+        {/* Mode Toggle & Availability Toggle */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Mode */}
           <div className="inline-flex p-1 bg-slate-100 rounded-xl text-xs font-semibold text-slate-700">
@@ -192,6 +231,20 @@ export const SearchFilters: React.FC<SearchFiltersProps> = ({
               In-Person
             </button>
           </div>
+
+          {/* Online status toggle */}
+          <button
+            type="button"
+            onClick={() => update('onlineOnly', !filters.onlineOnly)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+              filters.onlineOnly
+                ? 'bg-blue-50 text-blue-800 border-blue-300 ring-2 ring-blue-200'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${filters.onlineOnly ? 'bg-blue-600' : 'bg-slate-300'}`} />
+            <span>Online Only</span>
+          </button>
 
           {/* Instant Available Toggle */}
           <button

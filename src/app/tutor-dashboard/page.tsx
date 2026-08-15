@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { TutorService, BookingService } from '@/services/api';
-import { Booking, TutorStats, BookingStatus } from '@/types';
+import { Tutor, Booking, TutorStats, BookingStatus } from '@/types';
 import { DashboardCard } from '@/components/ui/DashboardCard';
 import { BookingCard } from '@/components/ui/BookingCard';
 import { Button } from '@/components/ui/Button';
@@ -30,6 +30,8 @@ import {
 
 export default function TutorDashboardPage() {
   const { user } = useAuth();
+  const [tutors, setTutors] = useState<Tutor[]>([]);
+  const [selectedTutorId, setSelectedTutorId] = useState<string>('');
   const [stats, setStats] = useState<TutorStats | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,12 +39,17 @@ export default function TutorDashboardPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadTutorData() {
+    async function loadInitialData() {
       setIsLoading(true);
       try {
+        const loadedTutors = await TutorService.getTutors();
+        setTutors(loadedTutors);
+        const defaultId = loadedTutors.length > 0 ? loadedTutors[0].id : 'tut-001';
+        setSelectedTutorId(defaultId);
+
         const [statsData, bookingsData] = await Promise.all([
-          TutorService.getTutorStats('tut-001'),
-          BookingService.getBookings('tut-001', 'tutor'),
+          TutorService.getTutorStats(defaultId),
+          BookingService.getBookings(defaultId, 'tutor'),
         ]);
         setStats(statsData);
         setBookings(bookingsData);
@@ -50,8 +57,23 @@ export default function TutorDashboardPage() {
         setIsLoading(false);
       }
     }
-    loadTutorData();
+    loadInitialData();
   }, []);
+
+  const handleSelectTutor = async (tutorId: string) => {
+    setSelectedTutorId(tutorId);
+    setIsLoading(true);
+    try {
+      const [statsData, bookingsData] = await Promise.all([
+        TutorService.getTutorStats(tutorId),
+        BookingService.getBookings(tutorId, 'tutor'),
+      ]);
+      setStats(statsData);
+      setBookings(bookingsData);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleBookingStatusChange = async (bookingId: string, status: BookingStatus) => {
     try {
@@ -68,6 +90,15 @@ export default function TutorDashboardPage() {
     } catch (err) {
       console.error('Error updating booking status', err);
     }
+  };
+
+  const activeTutor = tutors.find((t) => t.id === selectedTutorId) || (tutors[0] as Partial<Tutor>) || {
+    id: 'tut-001',
+    name: 'Dr. Priya Sharma',
+    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80',
+    title: 'Senior Physics Faculty',
+    qualification: 'Ph.D. IIT Delhi',
+    hourlyRate: 600,
   };
 
   const pendingRequests = bookings.filter((b) => b.status === 'pending');
@@ -87,11 +118,11 @@ export default function TutorDashboardPage() {
       {/* Top Banner Header */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-brand-950 text-white pt-8 pb-14 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden relative ring-4 ring-emerald-500/30 shrink-0 shadow-lg">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden relative ring-4 ring-emerald-500/30 shrink-0 shadow-lg bg-slate-800">
               <Image
-                src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80"
-                alt="Dr. Priya Sharma"
+                src={activeTutor.avatar || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80'}
+                alt={activeTutor.name || 'Educator'}
                 fill
                 className="object-cover"
                 sizes="80px"
@@ -103,12 +134,31 @@ export default function TutorDashboardPage() {
                 Verified Top Educator
               </div>
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight font-display">
-                Dr. Priya Sharma
+                {activeTutor.name}
               </h1>
               <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                Senior Physics Faculty • Ph.D. IIT Delhi • ₹600/hr
+                {activeTutor.title || 'Faculty Educator'} • {activeTutor.qualification || 'Verified Educator'} • ₹{activeTutor.hourlyRate || 600}/hr
               </p>
             </div>
+
+            {tutors.length > 1 && (
+              <div className="mt-2 sm:mt-0 sm:ml-4 bg-slate-800/80 p-2 rounded-xl border border-slate-700">
+                <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+                  Active Educator Profile:
+                </label>
+                <select
+                  value={selectedTutorId}
+                  onChange={(e) => handleSelectTutor(e.target.value)}
+                  className="bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-700 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                >
+                  {tutors.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.subjects?.[0] || 'Tutor'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Instant SOS Availability Toggle */}

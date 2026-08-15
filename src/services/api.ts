@@ -15,147 +15,467 @@ import {
   MOCK_TUTOR_STATS 
 } from '@/data/mockData';
 
-// Local storage key constants for interactive hackathon demo persistence
-const STORAGE_KEYS = {
-  BOOKINGS: 'edubridge_bookings',
-  TUTORS: 'edubridge_tutors',
-  CURRENT_USER: 'edubridge_user',
-};
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
-// Helper to initialize or retrieve from localStorage in browser
-function getStoredBookings(): Booking[] {
-  if (typeof window === 'undefined') return MOCK_BOOKINGS;
-  try {
-    const data = localStorage.getItem(STORAGE_KEYS.BOOKINGS);
-    if (!data) {
-      localStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(MOCK_BOOKINGS));
-      return MOCK_BOOKINGS;
-    }
-    return JSON.parse(data);
-  } catch {
-    return MOCK_BOOKINGS;
-  }
+interface BackendTutor {
+  _id: string;
+  name: string;
+  email: string;
+  qualification: string;
+  subjects: string[];
+  classes: string[];
+  languages: string[];
+  hourlyRate: number;
+  experience: number;
+  rating: number;
+  isVerified: boolean;
+  isOnline: boolean;
+  availability: string[];
+  bio?: string;
 }
 
-function saveBookings(bookings: Booking[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(bookings));
-  } catch (err) {
-    console.error('Failed to save bookings to localStorage', err);
+interface BackendTutorsResponse {
+  success: boolean;
+  count: number;
+  tutors: BackendTutor[];
+}
+
+interface BackendTutorResponse {
+  success: boolean;
+  tutor: BackendTutor;
+}
+
+interface BackendRecommendationsResponse {
+  success: boolean;
+  recommendations: Array<{
+    tutor: BackendTutor;
+    matchScore: number;
+    reasons: string[];
+  }>;
+}
+
+interface BackendBookingTutor {
+  _id?: string;
+  name?: string;
+  qualification?: string;
+  hourlyRate?: number;
+}
+
+interface BackendBooking {
+  _id: string;
+  tutor: string | BackendBookingTutor;
+  studentId: string;
+  studentName: string;
+  studentPhone?: string;
+  subject: string;
+  bookingDate: string;
+  timeSlot: string;
+  durationMinutes: number;
+  mode: 'online' | 'local';
+  status: BookingStatus;
+  totalAmount: number;
+  topicDoubt?: string;
+  meetUrl?: string;
+  createdAt: string;
+}
+
+interface BackendBookingsResponse {
+  success: boolean;
+  count: number;
+  bookings: BackendBooking[];
+}
+
+interface BackendBookingResponse {
+  success: boolean;
+  message?: string;
+  booking: BackendBooking;
+}
+
+function classLabel(value: string): string {
+  if (/^\d+$/.test(value)) {
+    return `Class ${value}`;
   }
+  return value;
+}
+
+function extractClassLevel(grade?: string): string | undefined {
+  if (!grade || grade === 'All Classes') return undefined;
+  const numericMatch = grade.match(/\d+/);
+  if (numericMatch) return numericMatch[0];
+  return grade.replace(/^class\s+/i, '').split('(')[0].trim();
+}
+
+function buildAvailableSlots(availability: string[]) {
+  const slotMap: Record<string, string[]> = {
+    Morning: ['08:00 AM', '09:00 AM', '10:00 AM'],
+    Afternoon: ['01:00 PM', '02:00 PM', '03:00 PM'],
+    Evening: ['05:00 PM', '06:00 PM', '07:00 PM'],
+    Night: ['08:00 PM', '09:00 PM'],
+  };
+
+  const windows = availability.length > 0 ? availability : ['Evening'];
+  const todayTimes = windows.flatMap((window) => slotMap[window] || ['06:00 PM']);
+  const tomorrowTimes = windows.flatMap((window) => slotMap[window] || ['07:00 PM']).slice(0, 3);
+
+  return [
+    { day: 'Today', times: todayTimes.length > 0 ? todayTimes : ['06:00 PM'] },
+    { day: 'Tomorrow', times: tomorrowTimes.length > 0 ? tomorrowTimes : ['07:00 PM'] },
+    { day: 'Saturday', times: ['10:00 AM', '05:00 PM'] },
+  ];
+}
+
+function isMongoId(value: string | undefined): boolean {
+  return Boolean(value && /^[a-f\d]{24}$/i.test(value));
+}
+
+function toDateLabel(dateInput: string): string {
+  const date = new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return dateInput;
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatDateYMD(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function resolveBookingDateLabelToISO(value: string): string {
+  const cleaned = value.split(',')[0].trim();
+  const lowered = cleaned.toLowerCase();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (lowered === 'today') return formatDateYMD(today);
+  if (lowered === 'tomorrow') {
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return formatDateYMD(tomorrow);
+  }
+
+  const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const weekdayIndex = weekdays.indexOf(lowered);
+  if (weekdayIndex !== -1) {
+    const candidate = new Date(today);
+    const diff = (weekdayIndex - today.getDay() + 7) % 7 || 7;
+    candidate.setDate(candidate.getDate() + diff);
+    return formatDateYMD(candidate);
+  }
+
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return formatDateYMD(parsed);
+
+  return formatDateYMD(today);
+}
+
+function normalizeTimeSlot(slot: string, durationMinutes: number): string {
+  const trimmed = slot.trim();
+  if (/^\d{1,2}:\d{2}\s?(AM|PM)\s-\s\d{1,2}:\d{2}\s?(AM|PM)$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
+  if (!match) return '05:30 PM - 06:30 PM';
+
+  const [, rawHours, rawMinutes, period] = match;
+  let hours24 = Number(rawHours) % 12;
+  if (period.toUpperCase() === 'PM') hours24 += 12;
+  const minutes = Number(rawMinutes);
+
+  const start = new Date();
+  start.setHours(hours24, minutes, 0, 0);
+
+  const end = new Date(start);
+  end.setMinutes(end.getMinutes() + durationMinutes);
+
+  const format12 = (date: Date) => {
+    let h = date.getHours();
+    const m = String(date.getMinutes()).padStart(2, '0');
+    const p = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${String(h).padStart(2, '0')}:${m} ${p}`;
+  };
+
+  return `${format12(start)} - ${format12(end)}`;
+}
+
+function mapBackendBookingToBooking(booking: BackendBooking): Booking {
+  const tutorData = typeof booking.tutor === 'object' && booking.tutor !== null ? booking.tutor : {};
+  const tutorId = typeof booking.tutor === 'string' ? booking.tutor : tutorData._id || '';
+  const tutorName = tutorData.name || 'Tutor';
+
+  return {
+    id: booking._id,
+    tutorId,
+    tutorName,
+    tutorAvatar: `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(tutorName)}`,
+    tutorTitle: tutorData.qualification || 'Verified Tutor',
+    tutorSubject: booking.subject,
+    studentId: booking.studentId,
+    studentName: booking.studentName,
+    studentGrade: 'Class Not Provided',
+    studentPhone: booking.studentPhone,
+    date: toDateLabel(booking.bookingDate),
+    timeSlot: booking.timeSlot,
+    durationMinutes: booking.durationMinutes,
+    mode: booking.mode,
+    status: booking.status,
+    totalAmount: booking.totalAmount,
+    topicDoubt: booking.topicDoubt,
+    meetUrl: booking.meetUrl,
+    createdAt: toDateLabel(booking.createdAt),
+  };
+}
+
+function mapBackendTutorToTutor(
+  tutor: BackendTutor,
+  extras?: { matchScore?: number; matchReasons?: string[] }
+): Tutor {
+  const grades = tutor.classes.map(classLabel);
+  const hourlyRate = tutor.hourlyRate;
+  const instantRate15Min = Math.max(99, Math.round(hourlyRate * 0.3));
+
+  return {
+    id: tutor._id,
+    name: tutor.name,
+    avatar: `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(tutor.name)}`,
+    title: `${tutor.subjects.slice(0, 2).join(' & ')} Tutor`,
+    qualification: tutor.qualification,
+    experienceYears: tutor.experience,
+    subjects: tutor.subjects,
+    grades,
+    boards: ['CBSE', 'ICSE', 'State Board'],
+    languages: tutor.languages,
+    hourlyRate,
+    instantRate15Min,
+    rating: tutor.rating,
+    reviewCount: Math.max(8, Math.round(tutor.rating * 18)),
+    totalStudents: Math.max(30, tutor.experience * 45),
+    totalHours: Math.max(120, tutor.experience * 160),
+    isVerified: tutor.isVerified,
+    verificationBadge: tutor.isVerified ? 'Government ID & Degree' : 'Background Verified',
+    mode: tutor.isOnline ? 'online' : 'local',
+    location: {
+      city: 'India',
+      state: 'India',
+      locality: tutor.isOnline ? 'Online' : 'Local',
+    },
+    bio: tutor.bio || `${tutor.name} teaches ${tutor.subjects.join(', ')} with student-first sessions.`,
+    methodology: 'Concept-first teaching, guided examples, and focused practice based on student pace.',
+    highlights: [
+      `${tutor.experience}+ years teaching experience`,
+      `Specializes in ${tutor.subjects.slice(0, 2).join(' and ')}`,
+      tutor.isOnline ? 'Online classes available' : 'Local in-person sessions available',
+    ],
+    isAvailableNow: tutor.isOnline,
+    availableDays: tutor.availability,
+    availableSlots: buildAvailableSlots(tutor.availability),
+    matchScore: extras?.matchScore,
+    matchReasons: extras?.matchReasons,
+  };
+}
+
+function buildTutorQueryParams(filters?: Partial<TutorFilterState>): URLSearchParams {
+  const params = new URLSearchParams();
+  if (!filters) return params;
+
+  if (filters.query?.trim()) params.set('q', filters.query.trim());
+  if (filters.subject && filters.subject !== 'All Subjects') params.set('subject', filters.subject);
+
+  const classLevel = extractClassLevel(filters.grade);
+  if (classLevel) params.set('classLevel', classLevel);
+
+  if (filters.language && filters.language !== 'All Languages') params.set('language', filters.language);
+  if (filters.availability && filters.availability !== 'All Times') params.set('availability', filters.availability);
+  if (filters.maxPrice && filters.maxPrice > 0) params.set('maxRate', String(filters.maxPrice));
+  if (filters.minRating && filters.minRating > 0) params.set('minRating', String(filters.minRating));
+
+  if (filters.onlineOnly) {
+    params.set('online', 'true');
+  } else if (filters.mode === 'online') {
+    params.set('online', 'true');
+  } else if (filters.mode === 'local') {
+    params.set('online', 'false');
+  }
+
+  if (filters.sortBy && filters.sortBy !== 'match') {
+    params.set('sort', filters.sortBy);
+  }
+
+  return params;
+}
+
+function filterMockTutors(filters?: Partial<TutorFilterState>): Tutor[] {
+  let results = [...MOCK_TUTORS];
+
+  if (!filters) return results;
+
+  if (filters.query) {
+    const q = filters.query.toLowerCase().trim();
+    results = results.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.title.toLowerCase().includes(q) ||
+        t.qualification.toLowerCase().includes(q) ||
+        t.location.city.toLowerCase().includes(q) ||
+        t.subjects.some((s) => s.toLowerCase().includes(q)) ||
+        t.languages.some((l) => l.toLowerCase().includes(q))
+    );
+  }
+
+  if (filters.subject && filters.subject !== 'All Subjects') {
+    results = results.filter((t) =>
+      t.subjects.some((s) => s.toLowerCase().includes(filters.subject!.toLowerCase()))
+    );
+  }
+
+  if (filters.grade && filters.grade !== 'All Classes') {
+    const gradeTerm = extractClassLevel(filters.grade) || filters.grade;
+    results = results.filter((t) =>
+      t.grades.some((g) => g.toLowerCase().includes(gradeTerm.toLowerCase()))
+    );
+  }
+
+  if (filters.language && filters.language !== 'All Languages') {
+    results = results.filter((t) =>
+      t.languages.some((l) => l.toLowerCase().includes(filters.language!.toLowerCase()))
+    );
+  }
+
+  if (filters.maxPrice && filters.maxPrice > 0) {
+    results = results.filter((t) => t.hourlyRate <= filters.maxPrice!);
+  }
+
+  if (filters.minRating && filters.minRating > 0) {
+    results = results.filter((t) => t.rating >= filters.minRating!);
+  }
+
+  if (filters.onlineOnly) {
+    results = results.filter((t) => t.mode === 'online' || t.mode === 'both');
+  }
+
+  if (filters.availableNowOnly) {
+    results = results.filter((t) => t.isAvailableNow);
+  }
+
+  if (filters.sortBy) {
+    switch (filters.sortBy) {
+      case 'rating':
+        results.sort((a, b) => b.rating - a.rating);
+        break;
+      case 'price_asc':
+        results.sort((a, b) => a.hourlyRate - b.hourlyRate);
+        break;
+      case 'price_desc':
+        results.sort((a, b) => b.hourlyRate - a.hourlyRate);
+        break;
+      case 'experience':
+        results.sort((a, b) => b.experienceYears - a.experienceYears);
+        break;
+      case 'match':
+      default:
+        results.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+        break;
+    }
+  }
+
+  return results;
 }
 
 /**
- * Service layer prepared for future Backend REST APIs
+ * Service layer with backend-first integration and mock fallback for demo resiliency.
  */
 export const TutorService = {
-  /**
-   * Future endpoint: GET /api/tutors
-   */
   async getTutors(filters?: Partial<TutorFilterState>): Promise<Tutor[]> {
-    // Simulated network latency for realistic feel
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    const params = buildTutorQueryParams(filters);
 
-    let results = [...MOCK_TUTORS];
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tutors${params.toString() ? `?${params.toString()}` : ''}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+      });
 
-    if (!filters) return results;
+      if (!response.ok) {
+        throw new Error(`Failed to fetch tutors: ${response.status}`);
+      }
 
-    if (filters.query) {
-      const q = filters.query.toLowerCase().trim();
-      results = results.filter(
-        (t) =>
-          t.name.toLowerCase().includes(q) ||
-          t.title.toLowerCase().includes(q) ||
-          t.qualification.toLowerCase().includes(q) ||
-          t.location.city.toLowerCase().includes(q) ||
-          t.subjects.some((s) => s.toLowerCase().includes(q)) ||
-          t.languages.some((l) => l.toLowerCase().includes(q))
-      );
+      const payload = (await response.json()) as BackendTutorsResponse;
+      if (!payload.success || !Array.isArray(payload.tutors)) {
+        throw new Error('Invalid tutors payload');
+      }
+
+      return payload.tutors.map((tutor) => mapBackendTutorToTutor(tutor));
+    } catch (error) {
+      console.error('Tutor API unavailable, using mock tutor data fallback.', error);
+      return filterMockTutors(filters);
     }
+  },
 
-    if (filters.subject && filters.subject !== 'All Subjects') {
-      results = results.filter((t) =>
-        t.subjects.some((s) => s.toLowerCase().includes(filters.subject!.toLowerCase()))
-      );
+  async getTutorById(id: string): Promise<Tutor | null> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tutors/${id}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 400) return null;
+        throw new Error(`Failed to fetch tutor ${id}: ${response.status}`);
+      }
+
+      const payload = (await response.json()) as BackendTutorResponse;
+      if (!payload.success || !payload.tutor) {
+        throw new Error('Invalid tutor payload');
+      }
+
+      return mapBackendTutorToTutor(payload.tutor);
+    } catch (error) {
+      console.error('Tutor details API unavailable, using mock tutor fallback.', error);
+      const tutor = MOCK_TUTORS.find((t) => t.id === id);
+      return tutor || null;
     }
+  },
 
-    if (filters.grade && filters.grade !== 'All Classes') {
-      const gradeTerm = filters.grade.split(' ')[0]; // e.g. "Class 11"
-      results = results.filter((t) =>
-        t.grades.some((g) => g.toLowerCase().includes(gradeTerm.toLowerCase()))
-      );
-    }
+  async getRecommendedTutors(req?: Partial<RecommendationRequest>): Promise<TutorRecommendation[]> {
+    if (req?.subject && req?.grade && req?.language && typeof req.maxBudget === 'number') {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/tutors/recommendations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subject: req.subject,
+            classLevel: extractClassLevel(req.grade),
+            language: req.language,
+            maxBudget: req.maxBudget,
+            online: req.mode === 'online' ? true : undefined,
+          }),
+        });
 
-    if (filters.board && filters.board !== 'All Boards') {
-      results = results.filter((t) =>
-        t.boards.some((b) => b.toLowerCase().includes(filters.board!.toLowerCase()))
-      );
-    }
+        if (!response.ok) {
+          throw new Error(`Failed to fetch recommendations: ${response.status}`);
+        }
 
-    if (filters.language && filters.language !== 'All Languages') {
-      results = results.filter((t) =>
-        t.languages.some((l) => l.toLowerCase().includes(filters.language!.toLowerCase()))
-      );
-    }
+        const payload = (await response.json()) as BackendRecommendationsResponse;
+        if (!payload.success || !Array.isArray(payload.recommendations)) {
+          throw new Error('Invalid recommendations payload');
+        }
 
-    if (filters.mode && filters.mode !== 'all') {
-      results = results.filter((t) => t.mode === filters.mode || t.mode === 'both');
-    }
-
-    if (filters.maxPrice && filters.maxPrice > 0) {
-      results = results.filter((t) => t.hourlyRate <= filters.maxPrice!);
-    }
-
-    if (filters.minRating && filters.minRating > 0) {
-      results = results.filter((t) => t.rating >= filters.minRating!);
-    }
-
-    if (filters.availableNowOnly) {
-      results = results.filter((t) => t.isAvailableNow);
-    }
-
-    if (filters.sortBy) {
-      switch (filters.sortBy) {
-        case 'rating':
-          results.sort((a, b) => b.rating - a.rating);
-          break;
-        case 'price_asc':
-          results.sort((a, b) => a.hourlyRate - b.hourlyRate);
-          break;
-        case 'price_desc':
-          results.sort((a, b) => b.hourlyRate - a.hourlyRate);
-          break;
-        case 'experience':
-          results.sort((a, b) => b.experienceYears - a.experienceYears);
-          break;
-        case 'match':
-        default:
-          results.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
-          break;
+        return payload.recommendations.map((item) => ({
+          tutor: mapBackendTutorToTutor(item.tutor, {
+            matchScore: item.matchScore,
+            matchReasons: item.reasons,
+          }),
+          matchScore: item.matchScore,
+          reasons: item.reasons,
+        }));
+      } catch (error) {
+        console.error('Recommendation API unavailable, using mock fallback.', error);
       }
     }
 
-    return results;
-  },
-
-  /**
-   * Future endpoint: GET /api/tutors/:id
-   */
-  async getTutorById(id: string): Promise<Tutor | null> {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    const tutor = MOCK_TUTORS.find((t) => t.id === id);
-    return tutor || null;
-  },
-
-  /**
-   * Future endpoint: POST /api/recommend-tutors
-   * AI Recommendation pipeline connector
-   */
-  async getRecommendedTutors(req?: Partial<RecommendationRequest>): Promise<TutorRecommendation[]> {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Curate top matches from dataset
     const topTutors = MOCK_TUTORS.filter((t) => (t.matchScore || 0) >= 80).sort(
       (a, b) => (b.matchScore || 0) - (a.matchScore || 0)
     );
@@ -188,60 +508,131 @@ export const TutorService = {
     await new Promise((resolve) => setTimeout(resolve, 50));
     return MOCK_TUTOR_STATS;
   },
+
+  async toggleVerification(tutorId: string, isVerified?: boolean): Promise<Tutor> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tutors/${tutorId}/verify`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isVerified }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to toggle verification: ${response.status}`);
+      }
+
+      const payload = (await response.json()) as BackendTutorResponse;
+      if (!payload.success || !payload.tutor) {
+        throw new Error('Invalid toggle verification payload');
+      }
+
+      return mapBackendTutorToTutor(payload.tutor);
+    } catch (error) {
+      console.error('Tutor verification API unavailable, updating local mock state.', error);
+      const tutor = MOCK_TUTORS.find((t) => t.id === tutorId);
+      if (!tutor) {
+        throw new Error(`Tutor ${tutorId} not found`);
+      }
+      tutor.isVerified = typeof isVerified === 'boolean' ? isVerified : !tutor.isVerified;
+      tutor.verificationBadge = tutor.isVerified ? 'Government ID & Degree' : 'Background Verified';
+      return tutor;
+    }
+  },
 };
 
 export const BookingService = {
-  /**
-   * Future endpoint: GET /api/bookings
-   */
   async getBookings(userId?: string, role: 'student' | 'tutor' = 'student'): Promise<Booking[]> {
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    const allBookings = getStoredBookings();
-    if (!userId) return allBookings;
+    try {
+      const params = new URLSearchParams();
+      if (role === 'student' && userId) {
+        params.set('studentId', userId);
+      } else if (role === 'tutor' && isMongoId(userId)) {
+        params.set('tutorId', userId!);
+      }
 
-    if (role === 'tutor') {
-      return allBookings.filter((b) => b.tutorId === userId || b.tutorId === 'tut-001');
+      const response = await fetch(`${API_BASE_URL}/api/bookings${params.toString() ? `?${params.toString()}` : ''}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch bookings: ${response.status}`);
+      }
+
+      const payload = (await response.json()) as BackendBookingsResponse;
+      if (!payload.success || !Array.isArray(payload.bookings)) {
+        throw new Error('Invalid bookings payload');
+      }
+
+      return payload.bookings.map(mapBackendBookingToBooking);
+    } catch (error) {
+      console.error('Booking API unavailable while fetching bookings.', error);
+      return [];
     }
-    return allBookings.filter((b) => b.studentId === userId || b.studentId === 'stu-101');
   },
 
-  /**
-   * Future endpoint: POST /api/bookings
-   */
   async createBooking(
     bookingData: Omit<Booking, 'id' | 'createdAt' | 'status'>
   ): Promise<Booking> {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const allBookings = getStoredBookings();
-
-    const newBooking: Booking = {
-      ...bookingData,
-      id: `bk-${Date.now().toString().slice(-4)}`,
-      status: 'pending',
-      createdAt: 'Just now',
-      meetUrl: `/session/session-${Date.now().toString().slice(-4)}`,
+    const payload = {
+      tutorId: bookingData.tutorId,
+      studentId: bookingData.studentId,
+      studentName: bookingData.studentName,
+      studentPhone: bookingData.studentPhone,
+      subject: bookingData.tutorSubject,
+      bookingDate: resolveBookingDateLabelToISO(bookingData.date),
+      timeSlot: normalizeTimeSlot(bookingData.timeSlot, bookingData.durationMinutes),
+      durationMinutes: bookingData.durationMinutes,
+      mode: bookingData.mode,
+      topicDoubt: bookingData.topicDoubt,
     };
 
-    const updated = [newBooking, ...allBookings];
-    saveBookings(updated);
-    return newBooking;
-  },
+    const response = await fetch(`${API_BASE_URL}/api/bookings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
 
-  /**
-   * Future endpoint: PATCH /api/bookings/:id/accept or PATCH /api/bookings/:id/reject
-   */
-  async updateBookingStatus(bookingId: string, status: BookingStatus): Promise<Booking> {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const allBookings = getStoredBookings();
-    const index = allBookings.findIndex((b) => b.id === bookingId);
-
-    if (index === -1) {
-      throw new Error(`Booking ${bookingId} not found`);
+    const responseData = (await response.json()) as BackendBookingResponse | { message?: string };
+    if (!response.ok) {
+      throw new Error(responseData?.message || `Failed to create booking: ${response.status}`);
     }
 
-    const updatedBooking = { ...allBookings[index], status };
-    allBookings[index] = updatedBooking;
-    saveBookings(allBookings);
-    return updatedBooking;
+    const apiPayload = responseData as BackendBookingResponse;
+    if (!apiPayload.success || !apiPayload.booking) {
+      throw new Error('Invalid booking creation response');
+    }
+
+    const mapped = mapBackendBookingToBooking(apiPayload.booking);
+    return {
+      ...mapped,
+      tutorAvatar: bookingData.tutorAvatar,
+      tutorTitle: bookingData.tutorTitle,
+      tutorSubject: bookingData.tutorSubject,
+      studentGrade: bookingData.studentGrade,
+      date: bookingData.date,
+      timeSlot: payload.timeSlot,
+    };
+  },
+
+  async updateBookingStatus(bookingId: string, status: BookingStatus): Promise<Booking> {
+    const response = await fetch(`${API_BASE_URL}/api/bookings/${bookingId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+
+    const responseData = (await response.json()) as BackendBookingResponse | { message?: string };
+    if (!response.ok) {
+      throw new Error(responseData?.message || `Failed to update booking status: ${response.status}`);
+    }
+
+    const apiPayload = responseData as BackendBookingResponse;
+    if (!apiPayload.success || !apiPayload.booking) {
+      throw new Error('Invalid booking status update response');
+    }
+
+    return mapBackendBookingToBooking(apiPayload.booking);
   },
 };

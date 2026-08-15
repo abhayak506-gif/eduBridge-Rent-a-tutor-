@@ -37,6 +37,7 @@ function BookingContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Form selections
   const [mode, setMode] = useState<'online' | 'local'>('online');
@@ -88,6 +89,7 @@ function BookingContent() {
   const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setSubmitError(null);
 
     try {
       const created = await BookingService.createBooking({
@@ -109,6 +111,8 @@ function BookingContent() {
       });
 
       setConfirmedBooking(created);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Unable to create booking right now.');
     } finally {
       setIsSubmitting(false);
     }
@@ -362,6 +366,11 @@ function BookingContent() {
                 </div>
 
                 <div className="pt-2">
+                  {submitError && (
+                    <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                      {submitError}
+                    </div>
+                  )}
                   <Button
                     type="submit"
                     variant="primary"
