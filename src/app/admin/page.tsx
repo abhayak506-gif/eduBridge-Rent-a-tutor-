@@ -11,6 +11,7 @@ import { VerificationBadge } from '@/components/ui/VerificationBadge';
 import { Rating } from '@/components/ui/Rating';
 import { LoadingSpinner } from '@/components/ui/LoadingState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useAuth } from '@/context/AuthContext';
 import {
   ShieldCheck,
   Users,
@@ -31,6 +32,8 @@ import {
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
+  const { user } = useAuth();
+
   const [tutors, setTutors] = useState<Tutor[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,8 +66,12 @@ export default function AdminDashboardPage() {
   };
 
   useEffect(() => {
-    loadAdminData();
-  }, []);
+    if (user && user.role === 'admin') {
+      loadAdminData();
+    } else {
+      setIsLoading(false);
+    }
+  }, [user]);
 
   const handleToggleVerification = async (tutor: Tutor) => {
     setTogglingId(tutor.id);
@@ -84,6 +91,10 @@ export default function AdminDashboardPage() {
       setTimeout(() => setToastMessage(null), 3500);
     } catch (err) {
       console.error('Failed to toggle verification status:', err);
+      setToastMessage(
+        err instanceof Error ? `Failed: ${err.message}` : 'Unauthorized: verification toggle failed.'
+      );
+      setTimeout(() => setToastMessage(null), 4000);
     } finally {
       setTogglingId(null);
     }
@@ -155,12 +166,47 @@ export default function AdminDashboardPage() {
     }
   };
 
+  if (!user || user.role !== 'admin') {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-800 rounded-3xl p-6 sm:p-8 border border-slate-700/80 shadow-2xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-rose-600 flex items-center justify-center text-white shadow-lg shadow-rose-600/30 mx-auto">
+              <ShieldCheck className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-xl font-bold text-white tracking-tight font-display">
+              Access Denied
+            </h2>
+            <p className="text-xs text-slate-400">
+              This portal is restricted to authorized platform administrators. Please log in with an administrator account to access this page.
+            </p>
+          </div>
+
+          <div className="pt-2 flex flex-col gap-3 text-center text-xs">
+            <Link href="/auth/login">
+              <Button variant="primary" size="md" className="w-full">
+                Go to Login Page
+              </Button>
+            </Link>
+            <Link href="/" className="text-slate-400 hover:text-white transition-colors mt-2">
+              Return to Homepage
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50/70 pb-16">
       {/* Toast Alert */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-3 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-2 animate-in fade-in slide-in-from-top-4">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          {toastMessage.toLowerCase().includes('failed') || toastMessage.toLowerCase().includes('unauthorized') || toastMessage.toLowerCase().includes('forbidden') ? (
+            <XCircle className="w-4 h-4 text-rose-500" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          )}
           <span>{toastMessage}</span>
         </div>
       )}

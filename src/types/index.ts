@@ -1,4 +1,4 @@
-export type UserRole = 'student' | 'tutor';
+export type UserRole = 'student' | 'tutor' | 'admin';
 
 export interface User {
   id: string;
@@ -11,6 +11,7 @@ export interface User {
   board?: string;
   city?: string;
   preferredLanguages?: string[];
+  token?: string;
 }
 
 export type VerificationType = 'Government ID & Degree' | 'Top Tier Institute' | 'Background Verified';

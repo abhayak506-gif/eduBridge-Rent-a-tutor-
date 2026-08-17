@@ -3,65 +3,93 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { 
   GraduationCap, 
-  User, 
-  Phone, 
   Mail, 
   Lock, 
-  ShieldCheck, 
+  User as UserIcon,
+  Phone,
   ArrowRight, 
-  CheckCircle2, 
-  Sparkles 
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { loginAsStudent, loginAsTutor, loginCustom } = useAuth();
+  const { login } = useAuth();
 
+  const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const [selectedRole, setSelectedRole] = useState<'student' | 'tutor'>('student');
-  const [authMethod, setAuthMethod] = useState<'phone' | 'email'>('phone');
-  const [phone, setPhone] = useState('9876543210');
-  const [email, setEmail] = useState('aarav.sharma@example.in');
-  const [otp, setOtp] = useState('1234');
-  const [otpSent, setOtpSent] = useState(false);
+  
+  // Form Fields
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+
   const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !password || (activeTab === 'register' && !name)) {
+      setMessage({ type: 'error', text: 'Please fill in all required fields.' });
+      return;
+    }
+
     setIsLoading(true);
+    setMessage(null);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      if (selectedRole === 'student') {
-        if (authMethod === 'phone') {
-          loginCustom(phone, 'Aarav Sharma', 'student');
-        } else {
-          loginCustom(email, 'Aarav Sharma', 'student');
-        }
-        router.push('/dashboard');
-      } else {
-        if (authMethod === 'phone') {
-          loginCustom(phone, 'Dr. Priya Sharma', 'tutor');
-        } else {
-          loginCustom(email, 'Dr. Priya Sharma', 'tutor');
-        }
-        router.push('/tutor-dashboard');
+    const url = activeTab === 'login' 
+      ? `${API_BASE_URL}/api/auth/login` 
+      : `${API_BASE_URL}/api/auth/register`;
+    const payload = activeTab === 'login' 
+      ? { email, password, role: selectedRole }
+      : { name, email, password, role: selectedRole, phone };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || `${activeTab === 'login' ? 'Login' : 'Registration'} failed.`);
       }
-    }, 600);
-  };
 
-  const handleQuickStudentLogin = () => {
-    loginAsStudent();
-    router.push('/dashboard');
-  };
+      // Successful Auth
+      login(data.token, data.user);
+      setMessage({ 
+        type: 'success', 
+        text: activeTab === 'login' ? 'Login successful! Redirecting...' : 'Registration successful! Logging in...' 
+      });
 
-  const handleQuickTutorLogin = () => {
-    loginAsTutor();
-    router.push('/tutor-dashboard');
+      setTimeout(() => {
+        if (data.user.role === 'tutor') {
+          router.push('/tutor-dashboard');
+        } else if (data.user.role === 'admin') {
+          router.push('/admin');
+        } else {
+          router.push('/dashboard');
+        }
+      }, 800);
+
+    } catch (err) {
+      console.error(err);
+      setMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'An authentication error occurred. Please check your credentials.',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -78,72 +106,48 @@ export default function LoginPage() {
             </span>
           </Link>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
-            Welcome to EduBridge
+            Secure Authentication Portal
           </h2>
           <p className="text-xs text-slate-500">
-            Sign in to access verified 1-on-1 tutoring and instant doubt solving
+            Sign in or create an account with email and password.
           </p>
-        </div>
-
-        {/* 1-Click Hackathon Demo Login Presets */}
-        <div className="bg-gradient-to-r from-amber-500/10 via-brand-500/10 to-indigo-500/10 p-4 rounded-2xl border border-amber-200/80 shadow-sm space-y-2.5">
-          <div className="flex items-center justify-between text-xs font-bold text-amber-900">
-            <span className="flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-amber-600" />
-              SIH Judge Quick Demo Login:
-            </span>
-            <span className="text-[10px] bg-amber-200/60 px-2 py-0.5 rounded-full text-amber-900">
-              1-Click Demo
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handleQuickStudentLogin}
-              className="p-2.5 bg-white hover:bg-brand-50 rounded-xl border border-brand-200 text-left transition-all group flex items-center gap-2.5 shadow-sm"
-            >
-              <div className="w-8 h-8 rounded-full overflow-hidden relative shrink-0 ring-1 ring-brand-300">
-                <Image
-                  src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80"
-                  alt="Aarav"
-                  fill
-                  className="object-cover"
-                />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-slate-900 group-hover:text-brand-700 truncate">
-                  Student Login
-                </div>
-                <div className="text-[10px] text-slate-500 truncate">Aarav (Class 11)</div>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleQuickTutorLogin}
-              className="p-2.5 bg-white hover:bg-emerald-50 rounded-xl border border-emerald-200 text-left transition-all group flex items-center gap-2.5 shadow-sm"
-            >
-              <div className="w-8 h-8 rounded-full overflow-hidden relative shrink-0 ring-1 ring-emerald-300">
-                <Image
-                  src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80"
-                  alt="Dr. Priya"
-                  fill
-                  className="object-cover"
-                />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-slate-900 group-hover:text-emerald-700 truncate">
-                  Tutor Login
-                </div>
-                <div className="text-[10px] text-slate-500 truncate">Dr. Priya (Physics)</div>
-              </div>
-            </button>
-          </div>
         </div>
 
         {/* Main Auth Card */}
         <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-card border border-slate-200/90 space-y-5">
+          
+          {/* Tab Switcher */}
+          <div className="grid grid-cols-2 border-b border-slate-100 pb-2">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('login');
+                setMessage(null);
+              }}
+              className={`py-2 text-sm font-bold border-b-2 transition-all ${
+                activeTab === 'login'
+                  ? 'border-brand-600 text-brand-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('register');
+                setMessage(null);
+              }}
+              className={`py-2 text-sm font-bold border-b-2 transition-all ${
+                activeTab === 'register'
+                  ? 'border-brand-600 text-brand-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Register
+            </button>
+          </div>
+
           {/* Role Toggle */}
           <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl text-xs font-bold">
             <button
@@ -155,7 +159,7 @@ export default function LoginPage() {
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              I am a Student / Parent
+              Student / Parent Portal
             </button>
             <button
               type="button"
@@ -166,69 +170,38 @@ export default function LoginPage() {
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              I am an Educator / Tutor
+              Educator / Tutor Portal
             </button>
           </div>
 
-          {/* Phone / Email Toggle */}
-          <div className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
-            <span className="font-semibold text-slate-600">Sign in with:</span>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setAuthMethod('phone')}
-                className={`font-bold transition-colors ${
-                  authMethod === 'phone' ? 'text-brand-600 underline' : 'text-slate-400'
-                }`}
-              >
-                Mobile Number
-              </button>
-              <span className="text-slate-300">|</span>
-              <button
-                type="button"
-                onClick={() => setAuthMethod('email')}
-                className={`font-bold transition-colors ${
-                  authMethod === 'email' ? 'text-brand-600 underline' : 'text-slate-400'
-                }`}
-              >
-                Email Address
-              </button>
+          {message && (
+            <div className={`p-3.5 rounded-2xl border text-xs font-semibold flex items-start gap-2.5 ${
+              message.type === 'success' 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-950' 
+                : 'bg-rose-50 border-rose-200 text-rose-950'
+            }`}>
+              {message.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              )}
+              <span>{message.text}</span>
             </div>
-          </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {authMethod === 'phone' ? (
+            {activeTab === 'register' && (
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Indian Mobile Number
-                </label>
-                <div className="flex items-center">
-                  <span className="px-3.5 py-2.5 bg-slate-100 border border-r-0 border-slate-200 rounded-l-xl text-xs font-bold text-slate-600 select-none">
-                    +91
-                  </span>
-                  <input
-                    type="tel"
-                    maxLength={10}
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="9876543210"
-                    required
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-r-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Email Address
+                  Full Name
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="student@example.in"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Enter full name"
                     required
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white"
                   />
@@ -236,31 +209,57 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* OTP Input */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  Enter 4-Digit OTP
-                </label>
-                <span className="text-[11px] text-brand-600 font-semibold cursor-pointer">
-                  Resend OTP
-                </span>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  required
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white"
+                />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Password
+              </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
-                  type="text"
-                  maxLength={4}
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  placeholder="1 2 3 4"
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 tracking-widest focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white"
                 />
               </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                For demo testing, enter any 4 digits (e.g. 1234)
-              </p>
             </div>
+
+            {activeTab === 'register' && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Mobile Number (Optional)
+                </label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Mobile number (optional)"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+            )}
 
             <Button
               type="submit"
@@ -270,7 +269,7 @@ export default function LoginPage() {
               className="w-full mt-2"
               rightIcon={<ArrowRight className="w-4 h-4" />}
             >
-              Sign In to {selectedRole === 'student' ? 'Student Dashboard' : 'Tutor Portal'}
+              {activeTab === 'login' ? 'Sign In' : 'Create Account'}
             </Button>
           </form>
 

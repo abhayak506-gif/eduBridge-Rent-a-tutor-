@@ -5,6 +5,7 @@ require("dotenv").config();
 const connectDB = require("./config/db");
 const tutorRoutes = require("./routes/tutorRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
+const authRoutes = require("./routes/authRoutes");
 const { notFound, errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -21,6 +22,7 @@ app.use(express.json());
 // Routes
 app.use("/api/tutors", tutorRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/auth", authRoutes);
 
 // Test route
 app.get("/", (req, res) => {

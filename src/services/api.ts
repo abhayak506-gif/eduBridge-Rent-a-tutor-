@@ -384,6 +384,11 @@ function filterMockTutors(filters?: Partial<TutorFilterState>): Tutor[] {
 }
 
 /**
+ * Environment flag to control fallback to mock data in non-production environments.
+ */
+const ENABLE_MOCK_FALLBACK = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
+
+/**
  * Service layer with backend-first integration and mock fallback for demo resiliency.
  */
 export const TutorService = {
@@ -408,12 +413,25 @@ export const TutorService = {
 
       return payload.tutors.map((tutor) => mapBackendTutorToTutor(tutor));
     } catch (error) {
-      console.error('Tutor API unavailable, using mock tutor data fallback.', error);
-      return filterMockTutors(filters);
+      console.error('Tutor API unavailable:', error);
+      if (ENABLE_MOCK_FALLBACK) {
+        console.warn('Falling back to mock tutor data in development.');
+        return filterMockTutors(filters);
+      }
+      throw error;
     }
   },
 
   async getTutorById(id: string): Promise<Tutor | null> {
+    // If not a MongoDB ObjectId and mock fallback is allowed, resolve mock directly
+    if (!isMongoId(id)) {
+      if (ENABLE_MOCK_FALLBACK) {
+        const tutor = MOCK_TUTORS.find((t) => t.id === id);
+        return tutor || null;
+      }
+      return null;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/tutors/${id}`, {
         method: 'GET',
@@ -433,14 +451,20 @@ export const TutorService = {
 
       return mapBackendTutorToTutor(payload.tutor);
     } catch (error) {
-      console.error('Tutor details API unavailable, using mock tutor fallback.', error);
-      const tutor = MOCK_TUTORS.find((t) => t.id === id);
-      return tutor || null;
+      console.error(`Tutor details API unavailable for ID ${id}:`, error);
+      if (ENABLE_MOCK_FALLBACK) {
+        console.warn('Falling back to mock tutor details in development.');
+        const tutor = MOCK_TUTORS.find((t) => t.id === id);
+        return tutor || null;
+      }
+      throw error;
     }
   },
 
   async getRecommendedTutors(req?: Partial<RecommendationRequest>): Promise<TutorRecommendation[]> {
-    if (req?.subject && req?.grade && req?.language && typeof req.maxBudget === 'number') {
+    const hasRequiredParams = req?.subject && req?.grade && req?.language && typeof req.maxBudget === 'number';
+
+    if (hasRequiredParams) {
       try {
         const response = await fetch(`${API_BASE_URL}/api/tutors/recommendations`, {
           method: 'POST',
@@ -472,8 +496,15 @@ export const TutorService = {
           reasons: item.reasons,
         }));
       } catch (error) {
-        console.error('Recommendation API unavailable, using mock fallback.', error);
+        console.error('Recommendation API unavailable:', error);
+        if (!ENABLE_MOCK_FALLBACK) {
+          throw error;
+        }
       }
+    }
+
+    if (!ENABLE_MOCK_FALLBACK) {
+      throw new Error('Failed to fetch recommendations from backend and mock data is disabled.');
     }
 
     const topTutors = MOCK_TUTORS.filter((t) => (t.matchScore || 0) >= 80).sort(
@@ -510,10 +541,18 @@ export const TutorService = {
   },
 
   async toggleVerification(tutorId: string, isVerified?: boolean): Promise<Tutor> {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('edubridge_current_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const adminToken = user?.token || null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (adminToken) {
+      headers['Authorization'] = `Bearer ${adminToken}`;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/tutors/${tutorId}/verify`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ isVerified }),
       });
 
@@ -528,14 +567,18 @@ export const TutorService = {
 
       return mapBackendTutorToTutor(payload.tutor);
     } catch (error) {
-      console.error('Tutor verification API unavailable, updating local mock state.', error);
-      const tutor = MOCK_TUTORS.find((t) => t.id === tutorId);
-      if (!tutor) {
-        throw new Error(`Tutor ${tutorId} not found`);
+      console.error('Tutor verification API error:', error);
+      if (ENABLE_MOCK_FALLBACK) {
+        console.warn('Updating local mock state in development.');
+        const tutor = MOCK_TUTORS.find((t) => t.id === tutorId);
+        if (!tutor) {
+          throw new Error(`Tutor ${tutorId} not found`);
+        }
+        tutor.isVerified = typeof isVerified === 'boolean' ? isVerified : !tutor.isVerified;
+        tutor.verificationBadge = tutor.isVerified ? 'Government ID & Degree' : 'Background Verified';
+        return tutor;
       }
-      tutor.isVerified = typeof isVerified === 'boolean' ? isVerified : !tutor.isVerified;
-      tutor.verificationBadge = tutor.isVerified ? 'Government ID & Degree' : 'Background Verified';
-      return tutor;
+      throw error;
     }
   },
 };
@@ -567,8 +610,12 @@ export const BookingService = {
 
       return payload.bookings.map(mapBackendBookingToBooking);
     } catch (error) {
-      console.error('Booking API unavailable while fetching bookings.', error);
-      return [];
+      console.error('Booking API unavailable:', error);
+      if (ENABLE_MOCK_FALLBACK) {
+        console.warn('Using empty booking array fallback in development.');
+        return [];
+      }
+      throw error;
     }
   },
 
